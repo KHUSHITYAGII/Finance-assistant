@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  streamlit_app:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./streamlit_app:/app
+      - ./temp_audio:/app/temp_audio
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+    depends_on:
+      - orchestrator
+    networks:
+      - finance_assistant_network
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./orchestrator:/app
+    environment:
+      - API_AGENT_URL=http://api_agent:8001
+      - SCRAPING_AGENT_URL=http://scraping_agent:8002
+      - RETRIEVER_AGENT_URL=http://retriever_agent:8003
+      - ANALYSIS_AGENT_URL=http://analysis_agent:8004
+      - LANGUAGE_AGENT_URL=http://language_agent:8005
+      - VOICE_AGENT_URL=http://voice_agent:8006
+    depends_on:
+      - api_agent
+      - scraping_agent
+      - retriever_agent
+      - analysis_agent
+      - language_agent
+      - voice_agent
+    networks:
+      - finance_assistant_network
+
+  api_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./agents:/app
+    command: uvicorn api_agent_service:app --host 0.0.0.0 --port 8000
+    environment:
+      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY}
+    networks:
+      - finance_assistant_network
+
+  scraping_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./agents:/app
+      - ./data_cache:/app/data_cache
+    command: uvicorn scraping_agent_service:app --host 0.0.0.0 --port 8000
+    networks:
+      - finance_assistant_network
+
+  retriever_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./agents:/app
+      - ./vector_cache:/app/vector_cache
+    command: uvicorn retriever_agent_service:app --host 0.0.0.0 --port 8000
+    networks:
+      - finance_assistant_network
+
+  analysis_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8004:8000"
+    volumes:
+      - ./agents:/app
+      - ./analysis_cache:/app/analysis_cache
+    command: uvicorn analysis_agent_service:app --host 0.0.0.0 --port 8000
+    networks:
+      - finance_assistant_network
+
+  language_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./agents:/app
+    command: uvicorn language_agent_service:app --host 0.0.0.0 --port 8000
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - finance_assistant_network
+
+  voice_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.voice
+    ports:
+      - "8006:8000"
+    volumes:
+      - ./agents:/app
+      - ./temp_audio:/app/temp_audio
+    command: uvicorn voice_agent_service:app --host 0.0.0.0 --port 8000
+    networks:
+      - finance_assistant_network
+
+networks:
+  finance_assistant_network:
+    driver: bridge

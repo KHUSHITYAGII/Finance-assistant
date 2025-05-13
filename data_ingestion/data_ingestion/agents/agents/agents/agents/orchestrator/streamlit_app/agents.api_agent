@@ -1,0 +1,180 @@
+import os
+import sys
+import json
+import logging
+from typing import Dict, Any, List
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+
+# Add the project root to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Create FastAPI app
+app = FastAPI(title="Finance Returns API Agent")
+
+class ReturnsAnalysisAgent:
+    @staticmethod
+    def calculate_returns(symbol: str, period: str = '1mo') -> Dict[str, Any]:
+        """
+        Calculate comprehensive returns for a given stock
+        
+        Args:
+            symbol (str): Stock ticker symbol
+            period (str): Time period for return calculation
+        
+        Returns:
+            Dict containing return metrics
+        """
+        try:
+            # Fetch historical stock data
+            stock = yf.Ticker(symbol)
+            history = stock.history(period=period)
+            
+            if history.empty:
+                raise ValueError(f"No historical data found for {symbol}")
+            
+            # Calculate returns
+            daily_returns = history['Close'].pct_change()
+            cumulative_return = (1 + daily_returns).prod() - 1
+            
+            # Statistical analysis of returns
+            returns_analysis = {
+                "symbol": symbol,
+                "period": period,
+                "daily_returns": {
+                    "mean": daily_returns.mean(),
+                    "std_dev": daily_returns.std(),
+                    "min": daily_returns.min(),
+                    "max": daily_returns.max()
+                },
+                "cumulative_return": cumulative_return,
+                "annualized_return": (1 + cumulative_return) ** (252 / len(daily_returns)) - 1,
+                "sharpe_ratio": ReturnsAnalysisAgent._calculate_sharpe_ratio(daily_returns)
+            }
+            
+            return returns_analysis
+        
+        except Exception as e:
+            logger.error(f"Error calculating returns for {symbol}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @staticmethod
+    def _calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.02) -> float:
+        """
+        Calculate Sharpe Ratio
+        
+        Args:
+            returns (pd.Series): Daily returns
+            risk_free_rate (float): Annual risk-free rate
+        
+        Returns:
+            Sharpe Ratio
+        """
+        # Annualize risk-free rate
+        daily_risk_free_rate = (1 + risk_free_rate) ** (1/252) - 1
+        
+        # Calculate excess returns
+        excess_returns = returns - daily_risk_free_rate
+        
+        # Calculate Sharpe Ratio
+        if excess_returns.std() == 0:
+            return 0
+        
+        return excess_returns.mean() / excess_returns.std() * np.sqrt(252)
+    
+    @staticmethod
+    def compare_sector_returns(symbols: List[str], period: str = '1mo') -> Dict[str, Any]:
+        """
+        Compare returns across multiple stocks in a sector
+        
+        Args:
+            symbols (List[str]): List of stock symbols
+            period (str): Time period for return calculation
+        
+        Returns:
+            Dict containing comparative returns analysis
+        """
+        sector_returns = {}
+        
+        for symbol in symbols:
+            try:
+                sector_returns[symbol] = ReturnsAnalysisAgent.calculate_returns(symbol, period)
+            except Exception as e:
+                sector_returns[symbol] = {"error": str(e)}
+        
+        return {
+            "sector_symbols": symbols,
+            "period": period,
+            "comparative_returns": sector_returns,
+            "sector_summary": ReturnsAnalysisAgent._analyze_sector_returns(sector_returns)
+        }
+    
+    @staticmethod
+    def _analyze_sector_returns(sector_returns: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Provide summary statistics for sector returns
+        
+        Args:
+            sector_returns (Dict): Sector returns data
+        
+        Returns:
+            Dict with sector-level return statistics
+        """
+        valid_returns = {
+            symbol: data for symbol, data in sector_returns.items() 
+            if isinstance(data, dict) and 'cumulative_return' in data
+        }
+        
+        if not valid_returns:
+            return {}
+        
+        return {
+            "average_cumulative_return": np.mean([
+                data['cumulative_return'] for data in valid_returns.values()
+            ]),
+            "average_annualized_return": np.mean([
+                data['annualized_return'] for data in valid_returns.values()
+            ]),
+            "average_sharpe_ratio": np.mean([
+                data['sharpe_ratio'] for data in valid_returns.values()
+            ])
+        }
+
+# API Endpoints for Returns Analysis
+@app.get("/returns/{symbol}")
+async def get_stock_returns(symbol: str, period: str = '1mo'):
+    """
+    Endpoint to fetch returns analysis for a given stock symbol
+    """
+    return ReturnsAnalysisAgent.calculate_returns(symbol, period)
+
+@app.get("/sector_returns")
+async def get_sector_returns(symbols: List[str] = ['AAPL', 'MSFT', 'GOOGL'], period: str = '1mo'):
+    """
+    Endpoint to compare returns across multiple stocks
+    """
+    return ReturnsAnalysisAgent.compare_sector_returns(symbols, period)
+
+@app.get("/tech_sector_returns")
+async def get_tech_sector_returns(period: str = '1mo'):
+    """
+    Endpoint to analyze returns for major tech stocks
+    """
+    tech_stocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META']
+    return ReturnsAnalysisAgent.compare_sector_returns(tech_stocks, period)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,125 @@
+version: '3'
+
+services:
+  api_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - ALPHA_VANTAGE_API_KEY=demo
+      - YAHOO_FINANCE_ENABLED=true
+    command: uvicorn agents.api_agent:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  scraping_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    command: uvicorn agents.scraping_agent:app --host 0.0.0.0 --port 8002 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  retriever_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    command: uvicorn agents.retriever_agent:app --host 0.0.0.0 --port 8003 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  analysis_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    command: uvicorn agents.analysis_agent:app --host 0.0.0.0 --port 8004 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  language_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: uvicorn agents.language_agent:app --host 0.0.0.0 --port 8005 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  voice_agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8006:8006"
+    command: uvicorn agents.voice_agent:app --host 0.0.0.0 --port 8006 --reload
+    volumes:
+      - .:/app
+    networks:
+      - finance_assistant_network
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - API_AGENT_URL=http://api_agent:8001
+      - SCRAPING_AGENT_URL=http://scraping_agent:8002
+      - RETRIEVER_AGENT_URL=http://retriever_agent:8003
+      - ANALYSIS_AGENT_URL=http://analysis_agent:8004
+      - LANGUAGE_AGENT_URL=http://language_agent:8005
+      - VOICE_AGENT_URL=http://voice_agent:8006
+    command: uvicorn agents.orchestrator.orchestrator:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    depends_on:
+      - api_agent
+      - scraping_agent
+      - retriever_agent
+      - analysis_agent
+      - language_agent
+      - voice_agent
+    networks:
+      - finance_assistant_network
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+    command: streamlit run streamlit_app/app.py
+    volumes:
+      - .:/app
+    depends_on:
+      - orchestrator
+    networks:
+      - finance_assistant_network
+
+networks:
+  finance_assistant_network:
+    driver: bridge
